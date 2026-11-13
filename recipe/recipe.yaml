@@ -1,7 +1,7 @@
 context:
   name: petsc4py
   version: "3.26.1"
-  build: 0
+  build: 1
   version_xy: ${{ (version | split('.'))[:2] | join('.') }}
   python_min: ${{ python_min | default("3.11") }}
   abi3_tag: cp${{ python_min | split(".") | join("") }}
@@ -17,20 +17,25 @@ source:
 
 build:
   number: ${{ build }}
-  skip: win or (is_abi3 and not match(python, python_min + ".*"))
+  skip: is_abi3 and not match(python, python_min + ".*")
   python:
     version_independent: ${{ build_abi3 }}
   script:
     content:
-      - ${{ PYTHON }} conf/cythonize.py
-      - ${{ PYTHON }} -m pip -v install --no-deps .
+      - if: win
+        then:
+          - set "CL=/Zc:preprocessor %CL%"
+          - set "LINK=impi.lib %LINK%"
+      - '"${{ PYTHON }}" conf/cythonize.py'
+      - '"${{ PYTHON }}" -m pip -v install --no-deps --no-build-isolation .'
     env:
-      PETSC_DIR: "$PREFIX"
+      PETSC_DIR: ${{ "%LIBRARY_PREFIX%" if win else "$PREFIX" }}
       PETSC4PY_BUILD_PYSABI: ${{ abi3_tag }}
 
 requirements:
   build:
-    - ${{ compiler('fortran') }}
+    - if: not win
+      then: ${{ compiler('fortran') }}
     - ${{ compiler('c') }}
     - ${{ stdlib("c") }}
     - if: build_platform != target_platform
@@ -50,7 +55,7 @@ requirements:
     - pip
     - setuptools
     - numpy
-    - ${{ mpi }}
+    - ${{ mpi | replace('impi', 'impi-devel') }}
     - if: device == 'host'
       then:
         - petsc ${{ version_xy }}.* ${{ scalar }}_*
@@ -76,7 +81,9 @@ tests:
                 - "*"
 
           - script:
-              - abi3audit $SP_DIR/petsc4py/lib/*.so -s -v --assume-minimum-abi3 ${{ python_min }}
+              - if: win
+                then: abi3audit "%SP_DIR%/petsc4py/lib/PETSc.pyd" -s -v --assume-minimum-abi3 ${{ python_min }}
+                else: abi3audit $SP_DIR/petsc4py/lib/*.so -s -v --assume-minimum-abi3 ${{ python_min }}
             requirements:
               run:
                 - abi3audit
